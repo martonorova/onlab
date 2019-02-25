@@ -3,4 +3,4 @@ pluginManagement {
 		gradlePluginPortal()
 	}
 }
-rootProject.name = 'onlab'
+rootProject.name = 'onlab-webapp'
