@@ -12,14 +12,14 @@ public class Controller {
     LoadSimulatorManager loadSimulatorManager;
 
     @GetMapping
-    @RequestMapping("/")
-    public String index() {
-        return loadSimulatorManager.hello();
-    }
-
-    @GetMapping
     @RequestMapping("/time")
     public void doTimeConsumingTask() {
         loadSimulatorManager.doTimeConsumingTask();
+    }
+
+    @GetMapping
+    @RequestMapping("/memory")
+    public void doMemoryConsumingTask() {
+        loadSimulatorManager.doMemoryConsumingTask();
     }
 }
