@@ -3,6 +3,7 @@ package com.morova.onlab;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -15,9 +16,14 @@ public class LoadSimulatorManager {
     private MeterRegistry meterRegistry;
 
     // TODO read this from config
-    private int maxTimeConsTaskNum = 5;
+    @Value("${max.time.consuming.task.num}")
+    private int maxTimeConsTaskNum;
 
-    private ThreadPoolExecutor timeConsExecutor = (ThreadPoolExecutor) Executors.newFixedThreadPool(maxTimeConsTaskNum);
+    private ThreadPoolExecutor timeConsExecutor;
+
+    public LoadSimulatorManager(@Value("${max.time.consuming.task.num}") int maxTimeConsTaskNum) {
+        timeConsExecutor =  (ThreadPoolExecutor) Executors.newFixedThreadPool(maxTimeConsTaskNum);
+    }
 
 
     public void doMemoryConsumingTask() {
