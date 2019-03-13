@@ -1,0 +1,10 @@
+version: "3"
+services:
+  webapp:
+    build: .
+    ports:
+      - "8080:8080"
+  prometheus:
+    build: ./prometheus
+    ports:
+      - "9090:9090"
