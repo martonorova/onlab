@@ -15,7 +15,6 @@ public class LoadSimulatorManager {
     @Autowired
     private MeterRegistry meterRegistry;
 
-    // TODO read this from config
     @Value("${max.time.consuming.task.num}")
     private int maxTimeConsTaskNum;
 
@@ -41,6 +40,10 @@ public class LoadSimulatorManager {
 
     public int getFreeWorkerThreadNum() {
         return maxTimeConsTaskNum - timeConsExecutor.getActiveCount();
+    }
+
+    public int getActiveWorkerThreadNum() {
+        return timeConsExecutor.getActiveCount();
     }
 }
 
