@@ -8,3 +8,18 @@ services:
     build: ./prometheus
     ports:
       - "9090:9090"
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+  prediction:
+    build: ./clients/predicting
+    environment:
+      - ONLAB_WEBAPP_URL=http://webapp:8080/time
+      - TIME_BEFORE_PRED_START=10
+      - PREDICTION_INTERVAL=30
+    command: pipenv run python -u resource_predict.py
+    ports:
+      - "8000:8000"
+
+
