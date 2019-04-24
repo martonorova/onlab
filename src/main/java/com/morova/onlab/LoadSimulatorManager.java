@@ -5,8 +5,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
+
+import java.util.concurrent.*;
 
 
 @Service
@@ -19,9 +19,21 @@ public class LoadSimulatorManager {
     private int maxTimeConsTaskNum;
 
     private ThreadPoolExecutor timeConsExecutor;
+//    private int rejectedRequestNum = 0;
+    private Counter rejectedRequestCounter;
 
-    public LoadSimulatorManager(@Value("${max.time.consuming.task.num}") int maxTimeConsTaskNum) {
-        timeConsExecutor =  (ThreadPoolExecutor) Executors.newFixedThreadPool(maxTimeConsTaskNum);
+    public LoadSimulatorManager(@Value("${max.time.consuming.task.num}") int maxTimeConsTaskNum, MeterRegistry meterRegistry) {
+        timeConsExecutor = new ThreadPoolExecutor(
+                maxTimeConsTaskNum,
+                maxTimeConsTaskNum,
+                0,
+                TimeUnit.SECONDS,
+                new SynchronousQueue<>()
+        );
+
+        rejectedRequestCounter = Counter
+                .builder("rejected.request.num")
+                .register(meterRegistry);
     }
 
 
@@ -35,7 +47,12 @@ public class LoadSimulatorManager {
     }
 
     public void doTimeConsumingTask() {
-        timeConsExecutor.submit(new TimeConsumingTask());
+        try {
+            timeConsExecutor.submit(new TimeConsumingTask());
+        } catch (RejectedExecutionException ex) {
+            rejectedRequestCounter.increment();
+        }
+
     }
 
     public int getFreeWorkerThreadNum() {
@@ -45,6 +62,14 @@ public class LoadSimulatorManager {
     public int getActiveWorkerThreadNum() {
         return timeConsExecutor.getActiveCount();
     }
+
+    public int getCorePoolSize() {
+        return timeConsExecutor.getCorePoolSize();
+    }
+
+//    public int getRejectedRequestNum() {
+//        return rejectedRequestNum;
+//    }
 }
 
 

@@ -1,7 +1,9 @@
 package com.morova.onlab;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,6 +26,14 @@ public class WebappApplication {
 					loadSimulatorManager,
 					LoadSimulatorManager::getActiveWorkerThreadNum
 			).register(meterRegistry);
+			Gauge.builder(
+					"max.worker.threads",
+					loadSimulatorManager,
+					LoadSimulatorManager::getCorePoolSize
+			).register(meterRegistry);
+//			Counter.builder(
+//					"rejected.request.num"
+//			).register(meterRegistry);
 		};
 	}
 
