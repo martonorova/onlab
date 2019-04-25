@@ -16,7 +16,7 @@ services:
     build: ./clients/predicting
     environment:
       - ONLAB_WEBAPP_URL=http://webapp:8080/time
-      - TIME_BEFORE_PRED_START=10
+      - TIME_BEFORE_PRED_START=100
       - PREDICTION_INTERVAL=30
     command: pipenv run python -u resource_predict.py
     ports:
