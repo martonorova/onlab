@@ -8,7 +8,4 @@ EXPOSE 8000
 RUN pip install --upgrade pip
 RUN pip install pipenv
 RUN pipenv lock
-RUN python --version
-RUN pipenv install --verbose
-
-#ENTRYPOINT ["pipenv run p"]
+RUN pipenv install

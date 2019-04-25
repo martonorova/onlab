@@ -5,14 +5,22 @@ services:
     ports:
       - "8080:8080"
   prometheus:
+    depends_on:
+      - webapp
     build: ./prometheus
     ports:
       - "9090:9090"
   grafana:
+    depends_on:
+      - prometheus
     image: grafana/grafana
+    volumes:
+      - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
   prediction:
+    depends_on:
+      - prometheus
     build: ./clients/predicting
     environment:
       - ONLAB_WEBAPP_URL=http://webapp:8080/time
@@ -21,5 +29,8 @@ services:
     command: pipenv run python -u resource_predict.py
     ports:
       - "8000:8000"
+volumes:
+  grafana-data:
+    external: true
 
 

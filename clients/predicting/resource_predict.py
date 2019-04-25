@@ -5,80 +5,66 @@ import pandas
 import time
 import math
 from statsmodels.tsa.arima_model import ARIMA
-# import matplotlib.pyplot as plt
-# import matplotlib as mpl
 from prometheus_client import Gauge, start_http_server
 
 webapp_url = os.getenv("ONLAB_WEBAPP_URL", "http://webapp:8080/time")
 time_before_pred_start = int(os.getenv("TIME_BEFORE_PRED_START", 10))
 prediction_interval = int(os.getenv("PREDICTION_INTERVAL", 30))
 
-arima_gauge = Gauge('ARIMA_predicted_active_worker_threads', 'Predicted values by ARIMA modell')
+arima_resource_gauge = Gauge('ARIMA_predicted_active_worker_threads',
+                             'Predicted values by ARIMA model based on used resources')
+ma_resource_gauge = Gauge('MA_predicted_active_worker_threads',
+                          'Predicted values by MA model based on used resources')
+ema_resource_gauge = Gauge('EMA_predicted_active_worker_threads',
+                           'Predicted values by EMA model based on used resources')
+
+arima_resource_avg_smape_gauge = Gauge('ARIMA_resource_avg_smape',
+                                       'average SMAPE value for the ARIMA prediction based on used resources')
+ma_resource_avg_smape_gauge = Gauge('MA_resource_avg_smape',
+                                    'average SMAPE value for the MA prediction based on used resources')
+ema_resource_avg_smape_gauge = Gauge('EMA_resource_avg_smape',
+                                     'average SMAPE value for the EMA prediction based on used resources')
 
 
 class Controller(object):
 
-    predicted_values = list()  # holds the predicted values for the next iteration to calculate error
-    predictions_num = 0  # how many times did the prediction has run so far
+    predicted_values_by_pred_model = dict()
+    previous_pred_vals_by_pred_model = dict()
+
+    average_smapes_by_pred_model = dict()
     average_smape = 0
     smape_samples_num = 0
 
-    predicted_values_to_plot = list()
-    actual_values_to_plot = list()
-    should_draw_plot = False
-
-    def __init__(self, predict_model, should_draw_plot):
+    def __init__(self, predict_model):
         self.predict_model = predict_model
-        self.should_draw_plot = should_draw_plot
+        self.prediction_models = {
+            "arima": ARIMAPredict(ar=4, ir=0, ma=2),
+            "ma": MAPredict(window=prediction_interval),
+            "ema": EMAPredict(window=prediction_interval)
+        }
 
-    def calculate_avg_smape(self, new_smape):
+        for model in self.prediction_models:
+            self.average_smapes_by_pred_model[model] = 0
+        for model in self.prediction_models:
+            self.predicted_values_by_pred_model[model] = []
+
+    def calculate_avg_smape(self, new_smape, model):
         if not math.isnan(new_smape):
-            new_avg_smape = (self.average_smape * self.smape_samples_num + new_smape) / (self.smape_samples_num + 1)
+            new_avg_smape = (self.average_smapes_by_pred_model.get(model) * self.smape_samples_num + new_smape) / (self.smape_samples_num + 1)
             self.smape_samples_num += 1
-            self.average_smape = new_avg_smape
+            self.average_smapes_by_pred_model[model]= new_avg_smape
 
-    def save_values_to_plot(self, predicted_list, actual_list):
-        assert len(predicted_list) == len(actual_list)
-        length = len(predicted_list)
+            self.set_avg_smape_gauge(new_avg_smape, model)
 
-        for i in range(length):
-            # next_pred_value = predicted_list[i]
-            # if math.isnan(next_pred_value):
-            #     self.predicted_values_to_plot.append()
-            self.predicted_values_to_plot.append(predicted_list[i])
-            self.actual_values_to_plot.append(actual_list[i])
-
-    def draw_plot(self):
-        pass
-        # mpl.rcParams['lines.linewidth'] = 7
-        # font = {
-        #     'family': 'normal',
-        #     'weight': 'bold',
-        #     'size': 30,
-        # }
-        # mpl.rc('font', **font)
-        #
-        # predicted_series = pandas.Series(data=self.predicted_values_to_plot)
-        # actual_series = pandas.Series(data=self.actual_values_to_plot)
-        #
-        # predicted_series.plot(legend=True, label='Predicted')
-        # actual_series.plot(legend=True, label='Actual')
-        #
-        # plt.xlabel('time (s)')
-        # plt.ylabel('active threads')
-        #
-        # if type(self.predict_model) is ARIMAPredict:
-        #     title = 'ARIMA'
-        # elif type(self.predict_model) is MAPredict:
-        #     title = 'MA'
-        # elif type(self.predict_model) is EMAPredict:
-        #     title = 'EMA'
-        #
-        # plt.title(title)
-        #
-        # plt.draw()
-        # plt.pause(1)
-        # plt.clf()
+    def set_avg_smape_gauge(self, value,  model):
+        if model == 'arima':
+            arima_resource_avg_smape_gauge.set(value)
+        elif model == 'ma':
+            ma_resource_avg_smape_gauge.set(value)
+        elif model == 'ema':
+            ema_resource_avg_smape_gauge.set(value)
+        else:
+            raise KeyError('No model with this name')
 
     def start(self):
         print("START")
@@ -90,37 +76,25 @@ class Controller(object):
 
             print("PREDICT START: {}".format(time.ctime()))
 
-            # TODO this in VARIABLE (prmetheus address)
+            # TODO this in VARIABLE (prometheus address)
             metrics = requests.get(
                 "http://prometheus:9090/api/v1/query?query=active_worker_threads[{}s]".format(time_before_pred_start))
             metric_values = [int(record[1]) for record in metrics.json().get('data').get('result')[0].get('values')]
             print("Metric values: {} at {}".format(metric_values, time.ctime()))
 
-            # check error of last prediction
-            if len(self.predicted_values) != 0:
-                previous_predicted_values = self.predicted_values
-                actual_values = metric_values[-len(previous_predicted_values):]
+            for model in self.prediction_models:
+                if len(self.predicted_values_by_pred_model.get(model)) != 0:
+                    self.previous_pred_vals_by_pred_model[model] = self.predicted_values_by_pred_model.get(model)
+                    actual_values = metric_values[-len(self.previous_pred_vals_by_pred_model.get(model)):]
 
-                assert len(previous_predicted_values) == len(actual_values)
+                    print("PREV_PREDICTED: " + str(self.previous_pred_vals_by_pred_model.get(model)))
+                    print("ACTUAL: " + str(actual_values))
+                    smape_val = smape(self.previous_pred_vals_by_pred_model.get(model), actual_values)
 
-                smape_val = smape(previous_predicted_values, actual_values)
-
-                self.save_values_to_plot(previous_predicted_values, actual_values)
-
-                if self.should_draw_plot:
-                    self.draw_plot()
-
-                self.calculate_avg_smape(smape_val)
-
-                print("Prev predicted: {}, Actual: {} || SMAPE: {}, AVG_SMAPE: {}".format(
-                    previous_predicted_values,
-                    actual_values,
-                    smape_val,
-                    self.average_smape
-                ))
+                    self.calculate_avg_smape(smape_val, model)
 
             try:
-                self.predicted_values = self.predict_model.forecast(metric_values, prediction_interval)
+                self.predict(metric_values)
             except Exception as e:
                 print(e)
 
@@ -129,6 +103,11 @@ class Controller(object):
             print("TIME_DELTA " + str(time_delta))
             if time_delta < prediction_interval:
                 time.sleep(prediction_interval - time_delta)
+
+    def predict(self, metric_values):
+        for model in self.prediction_models:
+            self.predicted_values_by_pred_model[model] = self.prediction_models.get(model).forecast(
+                metric_values, prediction_interval)
 
 
 def smape(predicted_list, actual_list):
@@ -157,16 +136,12 @@ class ARIMAPredict(object):
         # round the predicted values to integers
         predicted_values = [round(pv) for pv in model_fit.forecast(predict_num)[0]]
 
-
         # get the max, and set it to be the predicted value
-        max_pred_value = -1
-        for val in predicted_values:
-            if val > max_pred_value:
-                max_pred_value = val
+        max_pred_value = max(predicted_values)
 
         predicted_values = [max_pred_value for i in range(predict_num)]
 
-        arima_gauge.set(max_pred_value)
+        arima_resource_gauge.set(max_pred_value)
         return predicted_values
 
 
@@ -182,7 +157,11 @@ class MAPredict(object):
         input_series = pandas.Series(data=input_values)
         ma = input_series.iloc[-self.window:].mean()
 
-        return [ma for i in range(predict_num)]
+        predicted_values = [ma for i in range(predict_num)]
+
+        ma_resource_gauge.set(ma)
+
+        return predicted_values
 
 
 class EMAPredict(object):
@@ -196,25 +175,19 @@ class EMAPredict(object):
         input_series = pandas.Series(data=input_values)
         ema = input_series.ewm(span=10, min_periods=self.window).mean().to_list()
         predicted_value = ema[len(ema) - 1]
+
+        ema_resource_gauge.set(predicted_value)
+
         return [predicted_value for i in range(predict_num)]
-
-
-class MovingAveragePredict(object):
-    input_values = list()
-    # window
-
-    def forecast(self, input_values, predict_num):
-        input_series = pandas.Series(data=input_values)
-
-        moving_avg = input_series.rolling(window=10).mean()
-
-        predicted_values = [moving_avg for i in range(predict_num)]
-
-        return predicted_values
 
 
 if __name__ == '__main__':
     start_http_server(8000)
-    Controller(predict_model=ARIMAPredict(ar=4, ir=0, ma=2),
-               should_draw_plot=True).start()
+    arima_resource_gauge.set(0)
+    ma_resource_gauge.set(0)
+    ema_resource_gauge.set(0)
+    arima_resource_avg_smape_gauge.set(0)
+    ma_resource_avg_smape_gauge.set(0)
+    ema_resource_avg_smape_gauge.set(0)
+    Controller(predict_model=ARIMAPredict(ar=4, ir=0, ma=2)).start()
 
