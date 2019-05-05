@@ -7,8 +7,10 @@ import math
 from statsmodels.tsa.arima_model import ARIMA
 from prometheus_client import Gauge, start_http_server
 
-webapp_url = os.getenv("ONLAB_WEBAPP_URL", "http://webapp:8080/time")
-time_before_pred_start = int(os.getenv("TIME_BEFORE_PRED_START", 10))
+
+prometheus_base_url = "http://prometheus:9090/api/v1/query?query="
+
+time_before_pred_start = int(os.getenv("TIME_BEFORE_PRED_START", 100))
 prediction_interval = int(os.getenv("PREDICTION_INTERVAL", 30))
 
 arima_resource_gauge = Gauge('ARIMA_predicted_active_worker_threads',
@@ -17,6 +19,8 @@ ma_resource_gauge = Gauge('MA_predicted_active_worker_threads',
                           'Predicted values by MA model based on used resources')
 ema_resource_gauge = Gauge('EMA_predicted_active_worker_threads',
                            'Predicted values by EMA model based on used resources')
+final_prediction_gauge = Gauge("prediction_decisive",
+                               "The final prediction decision.")
 
 arima_resource_avg_smape_gauge = Gauge('ARIMA_resource_avg_smape',
                                        'average SMAPE value for the ARIMA prediction based on used resources')
@@ -76,10 +80,17 @@ class Controller(object):
 
             print("PREDICT START: {}".format(time.ctime()))
 
-            # TODO this in VARIABLE (prometheus address)
             metrics = requests.get(
-                "http://prometheus:9090/api/v1/query?query=active_worker_threads[{}s]".format(time_before_pred_start))
+                prometheus_base_url + "active_worker_threads[{}s]".format(time_before_pred_start))
             metric_values = [int(record[1]) for record in metrics.json().get('data').get('result')[0].get('values')]
+
+            rejected_requests = requests.get(
+                prometheus_base_url + "increase(rejected_request_num_total[30s])"
+            )
+            rejected_requests = int(math.floor(float(rejected_requests.json().get('data').get('result')[0].get('value')[1])))
+
+            metric_values = [value + rejected_requests for value in metric_values]
+
             print("Metric values: {} at {}".format(metric_values, time.ctime()))
 
             for model in self.prediction_models:
@@ -105,9 +116,12 @@ class Controller(object):
                 time.sleep(prediction_interval - time_delta)
 
     def predict(self, metric_values):
+
         for model in self.prediction_models:
             self.predicted_values_by_pred_model[model] = self.prediction_models.get(model).forecast(
                 metric_values, prediction_interval)
+
+
 
 
 def smape(predicted_list, actual_list):
@@ -139,6 +153,8 @@ class ARIMAPredict(object):
         # get the max, and set it to be the predicted value
         max_pred_value = max(predicted_values)
 
+        max_pred_value = correct_prediction(max_pred_value)
+
         predicted_values = [max_pred_value for i in range(predict_num)]
 
         arima_resource_gauge.set(max_pred_value)
@@ -156,6 +172,8 @@ class MAPredict(object):
 
         input_series = pandas.Series(data=input_values)
         ma = input_series.iloc[-self.window:].mean()
+
+        ma = correct_prediction(ma)
 
         predicted_values = [ma for i in range(predict_num)]
 
@@ -176,9 +194,15 @@ class EMAPredict(object):
         ema = input_series.ewm(span=10, min_periods=self.window).mean().to_list()
         predicted_value = ema[len(ema) - 1]
 
+        predicted_value = correct_prediction(predicted_value)
+
         ema_resource_gauge.set(predicted_value)
 
         return [predicted_value for i in range(predict_num)]
+
+
+def correct_prediction(predicted):
+    return int(math.ceil(predicted * 1.25))
 
 
 if __name__ == '__main__':

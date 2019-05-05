@@ -67,9 +67,11 @@ public class LoadSimulatorManager {
         return timeConsExecutor.getCorePoolSize();
     }
 
-//    public int getRejectedRequestNum() {
-//        return rejectedRequestNum;
-//    }
+    public void setPoolSize(int poolSize) {
+        timeConsExecutor.setCorePoolSize(poolSize);
+        timeConsExecutor.setMaximumPoolSize(poolSize);
+        maxTimeConsTaskNum = poolSize;
+    }
 }
 
 
