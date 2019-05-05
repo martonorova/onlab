@@ -1,13 +1,19 @@
 version: "3"
 services:
   webapp:
-    build: .
+    image: onlab-webapp_webapp
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+    deploy:
+      replicas: 2
     ports:
       - "8080:8080"
   prometheus:
     depends_on:
       - webapp
-    build: ./prometheus
+    image: onlab-webapp_prometheus
+#    build: ./prometheus
     ports:
       - "9090:9090"
   grafana:
@@ -21,7 +27,10 @@ services:
   prediction:
     depends_on:
       - prometheus
-    build: ./clients/predicting
+#    build:
+#      context: ./clients/predicting
+#      dockerfile: Dockerfile
+    image: onlab-webapp_prediction
     environment:
       - ONLAB_WEBAPP_URL=http://webapp:8080/time
       - TIME_BEFORE_PRED_START=100
