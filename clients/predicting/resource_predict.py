@@ -56,7 +56,7 @@ class Controller(object):
         if not math.isnan(new_smape):
             new_avg_smape = (self.average_smapes_by_pred_model.get(model) * self.smape_samples_num + new_smape) / (self.smape_samples_num + 1)
             self.smape_samples_num += 1
-            self.average_smapes_by_pred_model[model]= new_avg_smape
+            self.average_smapes_by_pred_model[model] = new_avg_smape
 
             self.set_avg_smape_gauge(new_avg_smape, model)
 
@@ -85,7 +85,7 @@ class Controller(object):
             metric_values = [int(record[1]) for record in metrics.json().get('data').get('result')[0].get('values')]
 
             rejected_requests = requests.get(
-                prometheus_base_url + "increase(rejected_request_num_total[30s])"
+                prometheus_base_url + "increase(rejected_request_num_total[10s])"
             )
             rejected_requests = int(math.floor(float(rejected_requests.json().get('data').get('result')[0].get('value')[1])))
 
@@ -117,11 +117,32 @@ class Controller(object):
 
     def predict(self, metric_values):
 
+        # we predict the same value over the next interval
+        pred_vals_by_model = dict()
+        sum_avg_smape = 0
+
         for model in self.prediction_models:
             self.predicted_values_by_pred_model[model] = self.prediction_models.get(model).forecast(
                 metric_values, prediction_interval)
+            pred_vals_by_model[model] = self.predicted_values_by_pred_model.get(model)[0]
+            sum_avg_smape += pred_vals_by_model.get(model)
 
+        weights_by_model = dict()
+        sum_weights = 0
+        for model in self.prediction_models:
+            weights_by_model[model] = sum_avg_smape / self.average_smapes_by_pred_model.get(model)
+            sum_weights += weights_by_model.get(model)
 
+        normalized_weigths_by_model = dict()
+
+        for model in self.prediction_models:
+            normalized_weigths_by_model[model] = weights_by_model.get(model) / sum_weights
+
+        final_pred_value = 0
+        for model in self.prediction_models:
+            final_pred_value += normalized_weigths_by_model.get(model) * pred_vals_by_model.get(model)
+
+        final_prediction_gauge.set(final_pred_value)
 
 
 def smape(predicted_list, actual_list):
@@ -210,6 +231,7 @@ if __name__ == '__main__':
     arima_resource_gauge.set(0)
     ma_resource_gauge.set(0)
     ema_resource_gauge.set(0)
+    final_prediction_gauge.set(0)
     arima_resource_avg_smape_gauge.set(0)
     ma_resource_avg_smape_gauge.set(0)
     ema_resource_avg_smape_gauge.set(0)

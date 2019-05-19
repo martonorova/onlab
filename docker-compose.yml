@@ -24,7 +24,7 @@ services:
     build: ./clients/predicting
     environment:
       - ONLAB_WEBAPP_URL=http://webapp:8080/time
-      - TIME_BEFORE_PRED_START=30
+      - TIME_BEFORE_PRED_START=100
       - PREDICTION_INTERVAL=30
     volumes:
       - ./clients/predicting:/code
